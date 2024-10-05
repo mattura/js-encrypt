@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Key Manager</title>
+    <script>
+        // Function to generate a public/private RSA-OAEP key pair
+        async function generateKeyPair() {
+            try {
+                const keyPair = await crypto.subtle.generateKey(
+                    {
+                        name: "RSA-OAEP",
+                        modulusLength: 2048,
+                        publicExponent: new Uint8Array([0x01, 0x00, 0x01]),  // 65537
+                        hash: { name: "SHA-256" }
+                    },
+                    true,
+                    ["encrypt", "decrypt"]
+                );
+                // Export keys in Base64 format
+                const privateKey = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
+                const publicKey = await crypto.subtle.exportKey("spki", keyPair.publicKey);
+                const privateKeyBase64 = arrayBufferToBase64(privateKey);
+                const publicKeyBase64 = arrayBufferToBase64(publicKey);
+                document.getElementById("privateKeyTextArea").value = privateKeyBase64;
+                document.getElementById("publicKeyTextArea").value = publicKeyBase64;
+                updateStatus("New key pair generated successfully.");
+            } catch (error) {
+                updateStatus("Error generating key pair: " + error.message);
+            }
+        }
+
+        // Save private and public keys to localStorage
+        function saveKeys() {
+            const privateKey = document.getElementById("privateKeyTextArea").value;
+            const publicKey = document.getElementById("publicKeyTextArea").value;
+            if (privateKey && publicKey) {
+                localStorage.setItem("privateKey", privateKey);
+                localStorage.setItem("publicKey", publicKey);
+                updateStatus("Private and public keys saved to localStorage.");
+            } else {
+                updateStatus("No key available to save.");
+            }
+        }
+
+        // Load private and public keys from localStorage
+        function loadKeys() {
+            try {
+                const privateKeyBase64 = localStorage.getItem("privateKey");
+                const publicKeyBase64 = localStorage.getItem("publicKey");
+                if (privateKeyBase64 && publicKeyBase64) {
+                    document.getElementById("privateKeyTextArea").value = privateKeyBase64;
+                    document.getElementById("publicKeyTextArea").value = publicKeyBase64;
+
+                    updateStatus("Private and public keys loaded from localStorage.");
+                } else {
+                    updateStatus("No keys found in localStorage.");
+                }
+            } catch (error) {
+                updateStatus("Error loading keys: " + error.message);
+            }
+        }
+
+        function updateStatus(message) {
+            document.getElementById("statusMessage").innerText = message;
+        }
+
+        function arrayBufferToBase64(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binaryString = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binaryString += String.fromCharCode(bytes[i]);
+            }
+            return window.btoa(binaryString);
+        }
+
+        async function regenerateKeys() {
+            await generateKeyPair();
+        }
+
+    </script>
+</head>
+<body>
+    <h1>Key Manager</h1>
+    <button onclick="regenerateKeys()">Generate New Key Pair</button>
+    <button onclick="saveKeys()">Save Keys</button>
+    <button onclick="loadKeys()">Load Keys</button>
+    <h3>Public Key (SPKI, Base64):</h3>
+    <textarea id="publicKeyTextArea" rows="10" cols="80"></textarea>
+    <h3>Private Key (PKCS8, Base64):</h3>
+    <textarea id="privateKeyTextArea" rows="10" cols="80"></textarea>
+    <div id="statusMessage" style="margin-top: 20px; font-weight: bold;"></div>
+</body>
+</html>
