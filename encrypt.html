@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Encrypt JSON with RSA, AES, and Password</title>
+    <script>
+        // Function to encrypt JSON using both RSA and password-derived key
+        async function encryptJson() {
+            try {
+                const publicKeyBase64 = document.getElementById("publicKeyTextArea").value;
+                const password = document.getElementById("passwordInput").value;
+
+                if (!publicKeyBase64 && !password) {
+                    updateStatus("Provide either a public key or password.");
+                    return;
+                }
+
+                const jsonInput = document.getElementById("jsonInputTextArea").value;
+                if (!jsonInput) {
+                    updateStatus("No JSON input provided.");
+                    return;
+                }
+
+                const jsonString = JSON.stringify(JSON.parse(jsonInput));
+                const encoder = new TextEncoder();
+                const jsonBuffer = encoder.encode(jsonString);
+
+                // Generate 256-bit AES key
+                const aesKey = await crypto.subtle.generateKey(
+                    { name: "AES-GCM", length: 256 },
+                    true,
+                    ["encrypt", "decrypt"]
+                );
+
+                // Encrypt the JSON data with AES
+                const dataIv = crypto.getRandomValues(new Uint8Array(12));
+                const aesEncryptedBuffer = await crypto.subtle.encrypt(
+                    { name: "AES-GCM", iv: dataIv },
+                    aesKey,
+                    jsonBuffer
+                );
+
+                // Prepare the output object
+                const encryptedJsonObj = { iv: arrayBufferToBase64(dataIv) };
+
+                // Encrypt AES key with RSA if public key is provided
+                if (publicKeyBase64) {
+                    const publicKeyBuffer = base64ToArrayBuffer(publicKeyBase64);
+                    const publicKey = await crypto.subtle.importKey(
+                        "spki",
+                        publicKeyBuffer,
+                        { name: "RSA-OAEP", hash: "SHA-256" },
+                        true,
+                        ["encrypt"]
+                    );
+
+                    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+                    const rsaEncryptedAesKey = await crypto.subtle.encrypt(
+                        { name: "RSA-OAEP" },
+                        publicKey,
+                        aesKeyRaw
+                    );
+                    encryptedJsonObj.encryptedKeyRSA = arrayBufferToBase64(rsaEncryptedAesKey);
+                }
+
+                // Encrypt AES key with password-derived key if password is provided
+                if (password) {
+                    const salt = window.crypto.getRandomValues(new Uint8Array(16));
+                    const aesKeyRaw = await crypto.subtle.exportKey("raw", aesKey);
+                    const passwordKey = await deriveKeyFromPassword(password, salt);
+
+                    const keyIv = crypto.getRandomValues(new Uint8Array(12)); // IV for AES key encryption
+                    const encryptedAesKeyPassword = await crypto.subtle.encrypt(
+                        { name: "AES-GCM", iv: keyIv },
+                        passwordKey,
+                        aesKeyRaw
+                    );
+                    encryptedJsonObj.encryptedKeyPassword = arrayBufferToBase64(encryptedAesKeyPassword);
+                    encryptedJsonObj.keyIv = arrayBufferToBase64(keyIv);  // Store IV for key decryption
+                    encryptedJsonObj.salt = arrayBufferToBase64(salt);
+                }
+                encryptedJsonObj.encryptedData = arrayBufferToBase64(aesEncryptedBuffer);
+
+                document.getElementById("encryptedOutputTextArea").value = JSON.stringify(encryptedJsonObj,null,2);
+                updateStatus("JSON encrypted successfully.");
+            } catch (error) {
+                updateStatus("Error during encryption: " + error.message);
+            }
+        }
+        
+        // Derive a key from password using PBKDF2
+        async function deriveKeyFromPassword(password, salt) {
+            const encoder = new TextEncoder();
+            const passwordBuffer = encoder.encode(password);
+            const keyMaterial = await crypto.subtle.importKey("raw", passwordBuffer, { name: "PBKDF2" }, false, ["deriveKey"]);
+            return crypto.subtle.deriveKey(
+                { name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" },
+                keyMaterial,
+                { name: "AES-GCM", length: 256 },
+                true,
+                ["encrypt", "decrypt"]
+            );
+        }
+
+        // Helper functions for Base64
+        function base64ToArrayBuffer(base64) {
+            const binaryString = window.atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        function arrayBufferToBase64(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binaryString = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binaryString += String.fromCharCode(bytes[i]);
+            }
+            return window.btoa(binaryString);
+        }
+
+        function updateStatus(message) {
+            document.getElementById("statusMessage").innerText = message;
+        }
+    </script>
+</head>
+<body>
+    <h1>Encrypt JSON Using AES, RSA and optional Password</h1>
+
+    <h3>Public Key (SPKI, Base64):</h3>
+    <textarea id="publicKeyTextArea" rows="5" cols="80"></textarea>
+
+    <h3>Password (optional):</h3>
+    <input type="text" id="passwordInput" style="width: 300px;">
+
+    <h3>JSON Input:</h3>
+    <textarea id="jsonInputTextArea" rows="10" cols="80"></textarea>
+
+    <br><br>
+    <button onclick="encryptJson()">Encrypt JSON</button>
+
+    <h3>Encrypted Output (JSON):</h3>
+    <textarea id="encryptedOutputTextArea" rows="10" cols="80"></textarea>
+
+    <div id="statusMessage" style="margin-top: 20px; font-weight: bold;"></div>
+</body>
+</html>
